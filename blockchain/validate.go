@@ -114,6 +114,22 @@ func IsCoinBase(tx *btcutil.Tx) bool {
 	return IsCoinBaseTx(tx.MsgTx())
 }
 
+// IsTaxTx checks if a transaction is a taxation transaction or not.
+// A Taxation transaction has multiple expired UTXOs as inputs.
+func IsTaxTx(msgTx *wire.MsgTx) bool {
+	// 0x00: regular non-witness tx
+	// 0x01: regular witness tx
+	// 0x11: tax witness tx
+	return msgTx.Type == 0x11
+}
+
+// IsTaxTransaction checks if a transaction is a taxation transaction or not.
+// A Taxation transaction has multiple expired UTXOs as inputs.
+// This function serves higher level of blockchain.
+func IsTaxTransaction(tx *btcutil.Tx) bool {
+	return IsTaxTx(tx.MsgTx())
+}
+
 // SequenceLockActive determines if a transaction's sequence locks have been
 // met, meaning that all the inputs of a given transaction have reached a
 // height or time sufficient for their relative lock-time maturity.
