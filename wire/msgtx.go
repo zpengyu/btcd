@@ -110,13 +110,14 @@ const (
 )
 
 // witnessMarkerBytes are a pair of bytes specific to the witness encoding. If
-// this sequence is encoutered, then it indicates a transaction has iwtness
+// this sequence is encoutered, then it indicates a transaction has witness
 // data. The first byte is an always 0x00 marker byte, which allows decoders to
 // distinguish a serialized transaction with witnesses from a regular (legacy)
 // one. The second byte is the Flag field, which at the moment is always 0x01,
 // but may be extended in the future to accommodate auxiliary non-committed
 // fields.
-var witessMarkerBytes = []byte{0x00, 0x01}
+var regularWitessMarkerBytes = []byte{0x00, 0x01}
+var taxWitessMarkerBytes = []byte{0x00, 0x11}
 
 // scriptFreeList defines a free list of byte slices (up to the maximum number
 // defined by the freeListMaxItems constant) that have a cap according to the
@@ -288,6 +289,7 @@ func NewTxOut(value int64, pkScript []byte) *TxOut {
 // inputs and outputs.
 type MsgTx struct {
 	Version  int32
+	Type     byte // default is 0x00
 	TxIn     []*TxIn
 	TxOut    []*TxOut
 	LockTime uint32
@@ -420,6 +422,10 @@ func (msg *MsgTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error
 		return err
 	}
 
+	// Set Type to 0x00 by default.
+	// It means regular non-witness tx
+	msg.Type = 0x00
+
 	// A count of zero (meaning no TxIn's to the uninitiated) indicates
 	// this is a transaction with witness data.
 	var flag [1]byte
@@ -429,9 +435,16 @@ func (msg *MsgTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error
 			return err
 		}
 
-		// At the moment, the flag MUST be 0x01. In the future other
+		// At the moment, the flag MUST be either 0x01 or 0x11. In the future other
 		// flag types may be supported.
-		if flag[0] != 0x01 {
+		switch flag[0] {
+		case 0x01:
+			// Regular witness tx
+			msg.Type = flag[0]
+		case 0x11:
+			// Tax witness tx
+			msg.Type = flag[0]
+		default:
 			str := fmt.Sprintf("witness tx but flag byte is %x", flag)
 			return messageError("MsgTx.BtcDecode", str)
 		}
@@ -697,8 +710,15 @@ func (msg *MsgTx) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error
 		// regular (legacy) one. The second byte is the Flag field,
 		// which at the moment is always 0x01, but may be extended in
 		// the future to accommodate auxiliary non-committed fields.
-		if _, err := w.Write(witessMarkerBytes); err != nil {
-			return err
+		switch msg.Type {
+		case 0x01:
+			if _, err := w.Write(regularWitessMarkerBytes); err != nil {
+				return err
+			}
+		case 0x11:
+			if _, err := w.Write(taxWitessMarkerBytes); err != nil {
+				return err
+			}
 		}
 	}
 
