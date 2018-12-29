@@ -28,6 +28,9 @@ const (
 	// tfModified indicates that a txout has been modified since it was
 	// loaded.
 	tfModified
+
+	// tfExpired indicates that a txout has been expired
+	tfExpired
 )
 
 // UtxoEntry houses details about an individual transaction output in a utxo
@@ -73,6 +76,26 @@ func (entry *UtxoEntry) BlockHeight() int32 {
 // current state of the unspent transaction output view it was obtained from.
 func (entry *UtxoEntry) IsSpent() bool {
 	return entry.packedFlags&tfSpent == tfSpent
+}
+
+// CheckExpired returns if utxo has expired or not by giving current height.
+// Active utxo means that it's existed in the active blockchain.
+// Expired utxo means that it's not existed in the active blockchain.
+// Active blockchain keeps the latest 368208 blocks.
+// 368208 = (7y x 365d x 24h + 2d x 24h) x 6
+func (entry *UtxoEntry) CheckExpired(txHeight int32) bool {
+	return txHeight-entry.blockHeight > 368208
+}
+
+// IsExpired returns if utxo has expired from the packedFlags information.
+func (entry *UtxoEntry) IsExpired() bool {
+	return entry.packedFlags&tfExpired == tfExpired
+}
+
+// Expired marks the output as expired
+func (entry *UtxoEntry) Expired() {
+	// Mark the output as expired
+	entry.packedFlags |= tfExpired
 }
 
 // Spend marks the output as spent.  Spending an output that is already spent

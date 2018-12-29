@@ -775,6 +775,11 @@ func (msg *MsgTx) HasWitness() bool {
 	return false
 }
 
+// HasTax returns if tx is tax tx
+func (msg *MsgTx) HasTax() bool {
+	return msg.Type == 0x11
+}
+
 // Serialize encodes the transaction to w using a format that suitable for
 // long-term storage such as a database while respecting the Version field in
 // the transaction.  This function differs from BtcEncode in that BtcEncode

@@ -219,6 +219,19 @@ type Params struct {
 	// BIP44 coin type used in the hierarchical deterministic path for
 	// address generation.
 	HDCoinType uint32
+
+	// Valid blockchain length
+	ValidChainLength uint32
+
+	// obtc hardfork start from this height
+	TaxationBeginHeight int32
+
+	// Taxation params
+	TaxRate                    uint16
+	TaxTxUrgentWeight          uint16
+	TaxTxCommonWeight          uint16
+	DustSatoshiAmount          uint16
+	UrgentExpiredUtxoThreshold uint16
 }
 
 // MainNetParams defines the network parameters for the main Bitcoin network.
@@ -251,6 +264,12 @@ var MainNetParams = Params{
 	ReduceMinDifficulty:      false,
 	MinDiffReductionTime:     0,
 	GenerateSupported:        false,
+	ValidChainLength:         368208, // = (7y x 365d x 24h + 2d x 24h) x 6
+	TaxationBeginHeight:      568500, // approx 2019-03-24
+	TaxTxCommonWeight:        20,     // 20% by default
+	TaxTxUrgentWeight:        50,     // 50% by default
+	TaxRate:                  30,     // 30% by default
+	DustSatoshiAmount:        54600,  // 10x dust definition
 
 	// Checkpoints ordered from oldest to newest.
 	Checkpoints: []Checkpoint{
@@ -331,21 +350,28 @@ var RegressionNetParams = Params{
 	DNSSeeds:    []DNSSeed{},
 
 	// Chain parameters
-	GenesisBlock:             &regTestGenesisBlock,
-	GenesisHash:              &regTestGenesisHash,
-	PowLimit:                 regressionPowLimit,
-	PowLimitBits:             0x207fffff,
-	CoinbaseMaturity:         100,
-	BIP0034Height:            100000000, // Not active - Permit ver 1 blocks
-	BIP0065Height:            1351,      // Used by regression tests
-	BIP0066Height:            1251,      // Used by regression tests
-	SubsidyReductionInterval: 150,
-	TargetTimespan:           time.Hour * 24 * 14, // 14 days
-	TargetTimePerBlock:       time.Minute * 10,    // 10 minutes
-	RetargetAdjustmentFactor: 4,                   // 25% less, 400% more
-	ReduceMinDifficulty:      true,
-	MinDiffReductionTime:     time.Minute * 20, // TargetTimePerBlock * 2
-	GenerateSupported:        true,
+	GenesisBlock:               &regTestGenesisBlock,
+	GenesisHash:                &regTestGenesisHash,
+	PowLimit:                   regressionPowLimit,
+	PowLimitBits:               0x207fffff,
+	CoinbaseMaturity:           100,
+	BIP0034Height:              100000000, // Not active - Permit ver 1 blocks
+	BIP0065Height:              1351,      // Used by regression tests
+	BIP0066Height:              1251,      // Used by regression tests
+	SubsidyReductionInterval:   150,
+	TargetTimespan:             time.Hour * 24 * 14, // 14 days
+	TargetTimePerBlock:         time.Minute * 10,    // 10 minutes
+	RetargetAdjustmentFactor:   4,                   // 25% less, 400% more
+	ReduceMinDifficulty:        true,
+	MinDiffReductionTime:       time.Minute * 20, // TargetTimePerBlock * 2
+	GenerateSupported:          true,
+	ValidChainLength:           368208, // = (7y x 365d x 24h + 2d x 24h) x 6
+	TaxationBeginHeight:        568500, // approx 2019-03-24, This value may be changed for regression test
+	TaxTxCommonWeight:          20,     // 20% by default
+	TaxTxUrgentWeight:          50,     // 50% by default
+	TaxRate:                    30,     // 30% by default
+	DustSatoshiAmount:          54600,  // 10x dust definition
+	UrgentExpiredUtxoThreshold: 100,    // in block length
 
 	// Checkpoints ordered from oldest to newest.
 	Checkpoints: nil,
@@ -410,21 +436,28 @@ var TestNet3Params = Params{
 	},
 
 	// Chain parameters
-	GenesisBlock:             &testNet3GenesisBlock,
-	GenesisHash:              &testNet3GenesisHash,
-	PowLimit:                 testNet3PowLimit,
-	PowLimitBits:             0x1d00ffff,
-	BIP0034Height:            21111,  // 0000000023b3a96d3484e5abb3755c413e7d41500f8e2a5c3f0dd01299cd8ef8
-	BIP0065Height:            581885, // 00000000007f6655f22f98e72ed80d8b06dc761d5da09df0fa1dc4be4f861eb6
-	BIP0066Height:            330776, // 000000002104c8c45e99a8853285a3b592602a3ccde2b832481da85e9e4ba182
-	CoinbaseMaturity:         100,
-	SubsidyReductionInterval: 210000,
-	TargetTimespan:           time.Hour * 24 * 14, // 14 days
-	TargetTimePerBlock:       time.Minute * 10,    // 10 minutes
-	RetargetAdjustmentFactor: 4,                   // 25% less, 400% more
-	ReduceMinDifficulty:      true,
-	MinDiffReductionTime:     time.Minute * 20, // TargetTimePerBlock * 2
-	GenerateSupported:        false,
+	GenesisBlock:               &testNet3GenesisBlock,
+	GenesisHash:                &testNet3GenesisHash,
+	PowLimit:                   testNet3PowLimit,
+	PowLimitBits:               0x1d00ffff,
+	BIP0034Height:              21111,  // 0000000023b3a96d3484e5abb3755c413e7d41500f8e2a5c3f0dd01299cd8ef8
+	BIP0065Height:              581885, // 00000000007f6655f22f98e72ed80d8b06dc761d5da09df0fa1dc4be4f861eb6
+	BIP0066Height:              330776, // 000000002104c8c45e99a8853285a3b592602a3ccde2b832481da85e9e4ba182
+	CoinbaseMaturity:           100,
+	SubsidyReductionInterval:   210000,
+	TargetTimespan:             time.Hour * 24 * 14, // 14 days
+	TargetTimePerBlock:         time.Minute * 10,    // 10 minutes
+	RetargetAdjustmentFactor:   4,                   // 25% less, 400% more
+	ReduceMinDifficulty:        true,
+	MinDiffReductionTime:       time.Minute * 20, // TargetTimePerBlock * 2
+	GenerateSupported:          false,
+	ValidChainLength:           368208, // = (7y x 365d x 24h + 2d x 24h) x 6
+	TaxationBeginHeight:        568500, // approx 2019-03-24
+	TaxTxCommonWeight:          20,     // 20% by default
+	TaxTxUrgentWeight:          50,     // 50% by default
+	TaxRate:                    30,     // 30% by default
+	DustSatoshiAmount:          54600,  // 10x dust definition
+	UrgentExpiredUtxoThreshold: 100,    // in block length
 
 	// Checkpoints ordered from oldest to newest.
 	Checkpoints: []Checkpoint{
@@ -502,21 +535,28 @@ var SimNetParams = Params{
 	DNSSeeds:    []DNSSeed{}, // NOTE: There must NOT be any seeds.
 
 	// Chain parameters
-	GenesisBlock:             &simNetGenesisBlock,
-	GenesisHash:              &simNetGenesisHash,
-	PowLimit:                 simNetPowLimit,
-	PowLimitBits:             0x207fffff,
-	BIP0034Height:            0, // Always active on simnet
-	BIP0065Height:            0, // Always active on simnet
-	BIP0066Height:            0, // Always active on simnet
-	CoinbaseMaturity:         100,
-	SubsidyReductionInterval: 210000,
-	TargetTimespan:           time.Hour * 24 * 14, // 14 days
-	TargetTimePerBlock:       time.Minute * 10,    // 10 minutes
-	RetargetAdjustmentFactor: 4,                   // 25% less, 400% more
-	ReduceMinDifficulty:      true,
-	MinDiffReductionTime:     time.Minute * 20, // TargetTimePerBlock * 2
-	GenerateSupported:        true,
+	GenesisBlock:               &simNetGenesisBlock,
+	GenesisHash:                &simNetGenesisHash,
+	PowLimit:                   simNetPowLimit,
+	PowLimitBits:               0x207fffff,
+	BIP0034Height:              0, // Always active on simnet
+	BIP0065Height:              0, // Always active on simnet
+	BIP0066Height:              0, // Always active on simnet
+	CoinbaseMaturity:           100,
+	SubsidyReductionInterval:   210000,
+	TargetTimespan:             time.Hour * 24 * 14, // 14 days
+	TargetTimePerBlock:         time.Minute * 10,    // 10 minutes
+	RetargetAdjustmentFactor:   4,                   // 25% less, 400% more
+	ReduceMinDifficulty:        true,
+	MinDiffReductionTime:       time.Minute * 20, // TargetTimePerBlock * 2
+	GenerateSupported:          true,
+	ValidChainLength:           368208, // = (7y x 365d x 24h + 2d x 24h) x 6
+	TaxationBeginHeight:        568500, // approx 2019-03-24, This value may be changed for regression test
+	TaxTxCommonWeight:          20,     // 20% by default
+	TaxTxUrgentWeight:          50,     // 50% by default
+	TaxRate:                    30,     // 30% by default
+	DustSatoshiAmount:          54600,  // 10x dust definition
+	UrgentExpiredUtxoThreshold: 100,    // in block length
 
 	// Checkpoints ordered from oldest to newest.
 	Checkpoints: nil,
