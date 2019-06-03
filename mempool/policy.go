@@ -99,7 +99,7 @@ func checkInputsStandard(tx *btcutil.Tx, utxoView *blockchain.UtxoViewpoint) err
 		// they have already been checked prior to calling this
 		// function.
 		entry := utxoView.LookupEntry(txIn.PreviousOutPoint)
-		originPkScript := entry.PkScript()
+		originPkScript := entry.PkScript
 		switch txscript.GetScriptClass(originPkScript) {
 		case txscript.ScriptHashTy:
 			numSigOps := txscript.GetPreciseSigOpCount(

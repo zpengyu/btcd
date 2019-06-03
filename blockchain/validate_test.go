@@ -5,6 +5,7 @@
 package blockchain
 
 import (
+	"encoding/hex"
 	"math"
 	"reflect"
 	"testing"
@@ -484,4 +485,32 @@ var Block100000 = wire.MsgBlock{
 			LockTime: 0,
 		},
 	},
+}
+
+func TestConcatAddressesFromPkScript(t *testing.T) {
+	tests := []struct {
+		scriptHex string
+		addr      string
+	}{
+		// real btc raw data from tx cade1c4e62f75f95ebaba1435bfe0ab0089c708520b81f19731f0c3a2819014b
+		{scriptHex: "76a91412aed4a2fed565f0f473b3688e60246576710f2a88ac", addr: "12hnbu1xVuYF4VhaXYFyw6Pq2eudj3CG4g"},
+		{scriptHex: "6a146f6d6e69000000000000001f000000020c855800", addr: ""},
+		{scriptHex: "76a91490c2917e7a89f3ec8a1bb82db92661dcab14fcc488ac", addr: "1ECRPUBJECFWcB73R6ydUQNJ6Ane8qYPr2"},
+		// Demo data multisig
+		// addr1: 020fa7bed1b89df218a2ed2c94ebbf872a7bda0f48d231eb8cb6f16b87d9bb5211
+		// addr2: 02d7e287092457f2bea226cd7537c5ee99af50cca923795a2ea65cf249f783c5d1
+		// addr3: 02e8b48f3c0a7c452792fa96cdcf2fc6a23298f4d6512bd8aa9a25210b66a1d450
+		{scriptHex: "5221020fa7bed1b89df218a2ed2c94ebbf872a7bda0f48d231eb8cb6f16b87d9bb52112102d7e287092457f2bea226cd7537c5ee99af50cca923795a2ea65cf249f783c5d12102e8b48f3c0a7c452792fa96cdcf2fc6a23298f4d6512bd8aa9a25210b66a1d45053ae", addr: "020fa7bed1b89df218a2ed2c94ebbf872a7bda0f48d231eb8cb6f16b87d9bb521102d7e287092457f2bea226cd7537c5ee99af50cca923795a2ea65cf249f783c5d102e8b48f3c0a7c452792fa96cdcf2fc6a23298f4d6512bd8aa9a25210b66a1d450"},
+	}
+
+	for i, test := range tests {
+		script, _ := hex.DecodeString(test.scriptHex)
+		result, err := concatAddressesFromPkScript(script, &chaincfg.MainNetParams)
+		if err != nil {
+			t.Fatalf("TestConcatAddressesFromPkScript %d Error: %v", i, err)
+		}
+		if result != test.addr {
+			t.Fatalf("TestConcatAddressesFromPkScript %d result: %v expected: %v", i, result, test.addr)
+		}
+	}
 }

@@ -1,11 +1,15 @@
 package blockchain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/btcsuite/btcd/utxo"
+)
 
 func TestCheckExpired(t *testing.T) {
-	utxoEntry := &UtxoEntry{
-		amount:      1000000,
-		blockHeight: 100001,
+	utxoEntry := &utxo.UtxoEntry{
+		Amount:      1000000,
+		BlockHeight: 100001,
 	}
 
 	if utxoEntry.CheckExpired(200000) {
@@ -14,18 +18,18 @@ func TestCheckExpired(t *testing.T) {
 }
 
 func TestIsExpired(t *testing.T) {
-	utxoEntryExpired := &UtxoEntry{
-		amount:      1000000,
-		blockHeight: 10000,
-		packedFlags: tfExpired,
+	utxoEntryExpired := &utxo.UtxoEntry{
+		Amount:      1000000,
+		BlockHeight: 10000,
+		PackedFlags: utxo.TfExpired,
 	}
 	if !utxoEntryExpired.IsExpired() {
 		t.Error("Entry should expired")
 	}
 
-	utxoEntryActive := &UtxoEntry{
-		amount:      1000000,
-		blockHeight: 10000,
+	utxoEntryActive := &utxo.UtxoEntry{
+		Amount:      1000000,
+		BlockHeight: 10000,
 	}
 	if utxoEntryActive.IsExpired() {
 		t.Error("Entry should not expired")
@@ -33,9 +37,9 @@ func TestIsExpired(t *testing.T) {
 }
 
 func TestExpired(t *testing.T) {
-	utxoEntryActive := &UtxoEntry{
-		amount:      1000000,
-		blockHeight: 10000,
+	utxoEntryActive := &utxo.UtxoEntry{
+		Amount:      1000000,
+		BlockHeight: 10000,
 	}
 	if utxoEntryActive.IsExpired() {
 		t.Error("Entry should not expired")

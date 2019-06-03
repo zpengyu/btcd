@@ -74,7 +74,7 @@ func calcInputValueAge(tx *wire.MsgTx, utxoView *blockchain.UtxoViewpoint, nextB
 			// Their input age should computed as zero since their
 			// parent hasn't made it into a block yet.
 			var inputAge int32
-			originHeight := entry.BlockHeight()
+			originHeight := entry.BlockHeight
 			if originHeight == UnminedHeight {
 				inputAge = 0
 			} else {
@@ -82,7 +82,7 @@ func calcInputValueAge(tx *wire.MsgTx, utxoView *blockchain.UtxoViewpoint, nextB
 			}
 
 			// Sum the input value times age.
-			inputValue := entry.Amount()
+			inputValue := entry.Amount
 			totalInputAge += float64(inputValue * int64(inputAge))
 		}
 	}

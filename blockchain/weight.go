@@ -107,7 +107,7 @@ func GetSigOpCost(tx *btcutil.Tx, isCoinBaseTx bool, utxoView *UtxoViewpoint, bi
 
 			witness := txIn.Witness
 			sigScript := txIn.SignatureScript
-			pkScript := utxo.PkScript()
+			pkScript := utxo.PkScript
 			numSigOps += txscript.GetWitnessSigOpCount(sigScript, pkScript, witness)
 		}
 

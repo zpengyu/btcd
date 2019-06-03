@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
+	"github.com/btcsuite/btcd/utxo"
 	"github.com/btcsuite/btcd/wire"
 )
 
@@ -328,7 +329,7 @@ func determineMainChainBlocks(blocksMap map[chainhash.Hash]*blockChainContext, t
 //    - 0x8ba5b9e763: VLQ-encoded compressed amount for 366875659 (3.66875659 BTC)
 //    - 0x01: special script type pay-to-script-hash
 //    - 0x1d...e6: script hash
-func deserializeUtxoEntryV0(serialized []byte) (map[uint32]*UtxoEntry, error) {
+func deserializeUtxoEntryV0(serialized []byte) (map[uint32]*utxo.UtxoEntry, error) {
 	// Deserialize the version.
 	//
 	// NOTE: Ignore version since it is no longer used in the new format.
@@ -402,12 +403,12 @@ func deserializeUtxoEntryV0(serialized []byte) (map[uint32]*UtxoEntry, error) {
 	}
 
 	// Map to hold all of the converted outputs.
-	entries := make(map[uint32]*UtxoEntry)
+	entries := make(map[uint32]*utxo.UtxoEntry)
 
 	// All entries will need to potentially be marked as a coinbase.
-	var packedFlags txoFlags
+	var packedFlags utxo.TxoFlags
 	if isCoinBase {
-		packedFlags |= tfCoinBase
+		packedFlags |= utxo.TfCoinBase
 	}
 
 	// Decode and add all of the utxos.
@@ -422,11 +423,11 @@ func deserializeUtxoEntryV0(serialized []byte) (map[uint32]*UtxoEntry, error) {
 		offset += bytesRead
 
 		// Create a new utxo entry with the details deserialized above.
-		entries[outputIndex] = &UtxoEntry{
-			amount:      int64(amount),
-			pkScript:    pkScript,
-			blockHeight: int32(blockHeight),
-			packedFlags: packedFlags,
+		entries[outputIndex] = &utxo.UtxoEntry{
+			Amount:      int64(amount),
+			PkScript:    pkScript,
+			BlockHeight: int32(blockHeight),
+			PackedFlags: packedFlags,
 		}
 	}
 

@@ -10,128 +10,14 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/utxo"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 )
 
-// txoFlags is a bitmask defining additional information and state for a
-// transaction output in a utxo view.
-type txoFlags uint8
-
-const (
-	// tfCoinBase indicates that a txout was contained in a coinbase tx.
-	tfCoinBase txoFlags = 1 << iota
-
-	// tfSpent indicates that a txout is spent.
-	tfSpent
-
-	// tfModified indicates that a txout has been modified since it was
-	// loaded.
-	tfModified
-
-	// tfExpired indicates that a txout has been expired
-	tfExpired
-)
-
-// UtxoEntry houses details about an individual transaction output in a utxo
-// view such as whether or not it was contained in a coinbase tx, the height of
-// the block that contains the tx, whether or not it is spent, its public key
-// script, and how much it pays.
-type UtxoEntry struct {
-	// NOTE: Additions, deletions, or modifications to the order of the
-	// definitions in this struct should not be changed without considering
-	// how it affects alignment on 64-bit platforms.  The current order is
-	// specifically crafted to result in minimal padding.  There will be a
-	// lot of these in memory, so a few extra bytes of padding adds up.
-
-	amount      int64
-	pkScript    []byte // The public key script for the output.
-	blockHeight int32  // Height of block containing tx.
-
-	// packedFlags contains additional info about output such as whether it
-	// is a coinbase, whether it is spent, and whether it has been modified
-	// since it was loaded.  This approach is used in order to reduce memory
-	// usage since there will be a lot of these in memory.
-	packedFlags txoFlags
-}
-
-// isModified returns whether or not the output has been modified since it was
-// loaded.
-func (entry *UtxoEntry) isModified() bool {
-	return entry.packedFlags&tfModified == tfModified
-}
-
-// IsCoinBase returns whether or not the output was contained in a coinbase
-// transaction.
-func (entry *UtxoEntry) IsCoinBase() bool {
-	return entry.packedFlags&tfCoinBase == tfCoinBase
-}
-
-// BlockHeight returns the height of the block containing the output.
-func (entry *UtxoEntry) BlockHeight() int32 {
-	return entry.blockHeight
-}
-
-// IsSpent returns whether or not the output has been spent based upon the
-// current state of the unspent transaction output view it was obtained from.
-func (entry *UtxoEntry) IsSpent() bool {
-	return entry.packedFlags&tfSpent == tfSpent
-}
-
-// CheckExpired returns if utxo has expired or not by giving current height.
-// Active utxo means that it's existed in the active blockchain.
-// Expired utxo means that it's not existed in the active blockchain.
-// Active blockchain keeps the latest 368208 blocks.
-// 368208 = (7y x 365d x 24h + 2d x 24h) x 6
-func (entry *UtxoEntry) CheckExpired(txHeight int32) bool {
-	return txHeight-entry.blockHeight > 368208
-}
-
-// IsExpired returns if utxo has expired from the packedFlags information.
-func (entry *UtxoEntry) IsExpired() bool {
-	return entry.packedFlags&tfExpired == tfExpired
-}
-
-// Expired marks the output as expired
-func (entry *UtxoEntry) Expired() {
-	// Mark the output as expired
-	entry.packedFlags |= tfExpired
-}
-
-// Spend marks the output as spent.  Spending an output that is already spent
-// has no effect.
-func (entry *UtxoEntry) Spend() {
-	// Nothing to do if the output is already spent.
-	if entry.IsSpent() {
-		return
-	}
-
-	// Mark the output as spent and modified.
-	entry.packedFlags |= tfSpent | tfModified
-}
-
-// Amount returns the amount of the output.
-func (entry *UtxoEntry) Amount() int64 {
-	return entry.amount
-}
-
-// PkScript returns the public key script for the output.
-func (entry *UtxoEntry) PkScript() []byte {
-	return entry.pkScript
-}
-
-// Clone returns a shallow copy of the utxo entry.
-func (entry *UtxoEntry) Clone() *UtxoEntry {
-	if entry == nil {
-		return nil
-	}
-
-	return &UtxoEntry{
-		amount:      entry.amount,
-		pkScript:    entry.pkScript,
-		blockHeight: entry.blockHeight,
-		packedFlags: entry.packedFlags,
-	}
+// UtxoViewpointInterface is the interface of UtxoViewpoint
+type UtxoViewpointInterface interface {
+	LookupEntry(wire.OutPoint) *utxo.UtxoEntry
 }
 
 // UtxoViewpoint represents a view into the set of unspent transaction outputs
@@ -142,7 +28,7 @@ func (entry *UtxoEntry) Clone() *UtxoEntry {
 // The unspent outputs are needed by other transactions for things such as
 // script validation and double spend prevention.
 type UtxoViewpoint struct {
-	entries  map[wire.OutPoint]*UtxoEntry
+	entries  map[wire.OutPoint]*utxo.UtxoEntry
 	bestHash chainhash.Hash
 }
 
@@ -162,7 +48,7 @@ func (view *UtxoViewpoint) SetBestHash(hash *chainhash.Hash) {
 // the current state of the view.  It will return nil if the passed output does
 // not exist in the view or is otherwise not available such as when it has been
 // disconnected during a reorg.
-func (view *UtxoViewpoint) LookupEntry(outpoint wire.OutPoint) *UtxoEntry {
+func (view *UtxoViewpoint) LookupEntry(outpoint wire.OutPoint) *utxo.UtxoEntry {
 	return view.entries[outpoint]
 }
 
@@ -182,16 +68,16 @@ func (view *UtxoViewpoint) addTxOut(outpoint wire.OutPoint, txOut *wire.TxOut, i
 	// is allowed so long as the previous transaction is fully spent.
 	entry := view.LookupEntry(outpoint)
 	if entry == nil {
-		entry = new(UtxoEntry)
+		entry = new(utxo.UtxoEntry)
 		view.entries[outpoint] = entry
 	}
 
-	entry.amount = txOut.Value
-	entry.pkScript = txOut.PkScript
-	entry.blockHeight = blockHeight
-	entry.packedFlags = tfModified
+	entry.Amount = txOut.Value
+	entry.PkScript = txOut.PkScript
+	entry.BlockHeight = blockHeight
+	entry.PackedFlags = utxo.TfModified
 	if isCoinBase {
-		entry.packedFlags |= tfCoinBase
+		entry.PackedFlags |= utxo.TfCoinBase
 	}
 }
 
@@ -263,9 +149,9 @@ func (view *UtxoViewpoint) connectTransaction(tx *btcutil.Tx, blockHeight int32,
 		if stxos != nil {
 			// Populate the stxo details using the utxo entry.
 			var stxo = SpentTxOut{
-				Amount:     entry.Amount(),
-				PkScript:   entry.PkScript(),
-				Height:     entry.BlockHeight(),
+				Amount:     entry.Amount,
+				PkScript:   entry.PkScript,
+				Height:     entry.BlockHeight,
 				IsCoinBase: entry.IsCoinBase(),
 			}
 			*stxos = append(*stxos, stxo)
@@ -304,7 +190,7 @@ func (view *UtxoViewpoint) connectTransactions(block *btcutil.Block, stxos *[]Sp
 // fetchEntryByHash attempts to find any available utxo for the given hash by
 // searching the entire set of possible outputs for the given hash.  It checks
 // the view first and then falls back to the database if needed.
-func (view *UtxoViewpoint) fetchEntryByHash(db database.DB, hash *chainhash.Hash) (*UtxoEntry, error) {
+func (view *UtxoViewpoint) fetchEntryByHash(db database.DB, hash *chainhash.Hash) (*utxo.UtxoEntry, error) {
 	// First attempt to find a utxo with the provided hash in the view.
 	prevOut := wire.OutPoint{Hash: *hash}
 	for idx := uint32(0); idx < MaxOutputsPerBlock; idx++ {
@@ -318,7 +204,7 @@ func (view *UtxoViewpoint) fetchEntryByHash(db database.DB, hash *chainhash.Hash
 	// Check the database since it doesn't exist in the view.  This will
 	// often by the case since only specifically referenced utxos are loaded
 	// into the view.
-	var entry *UtxoEntry
+	var entry *utxo.UtxoEntry
 	err := db.View(func(dbTx database.Tx) error {
 		var err error
 		entry, err = dbFetchUtxoEntryByHash(dbTx, hash)
@@ -347,10 +233,10 @@ func (view *UtxoViewpoint) disconnectTransactions(db database.DB, block *btcutil
 		tx := transactions[txIdx]
 
 		// All entries will need to potentially be marked as a coinbase.
-		var packedFlags txoFlags
+		var packedFlags utxo.TxoFlags
 		isCoinBase := txIdx == 0
 		if isCoinBase {
-			packedFlags |= tfCoinBase
+			packedFlags |= utxo.TfCoinBase
 		}
 
 		// Mark all of the spendable outputs originally created by the
@@ -374,11 +260,11 @@ func (view *UtxoViewpoint) disconnectTransactions(db database.DB, block *btcutil
 			prevOut.Index = uint32(txOutIdx)
 			entry := view.entries[prevOut]
 			if entry == nil {
-				entry = &UtxoEntry{
-					amount:      txOut.Value,
-					pkScript:    txOut.PkScript,
-					blockHeight: block.Height(),
-					packedFlags: packedFlags,
+				entry = &utxo.UtxoEntry{
+					Amount:      txOut.Value,
+					PkScript:    txOut.PkScript,
+					BlockHeight: block.Height(),
+					PackedFlags: packedFlags,
 				}
 
 				view.entries[prevOut] = entry
@@ -406,7 +292,7 @@ func (view *UtxoViewpoint) disconnectTransactions(db database.DB, block *btcutil
 			originOut := &tx.MsgTx().TxIn[txInIdx].PreviousOutPoint
 			entry := view.entries[*originOut]
 			if entry == nil {
-				entry = new(UtxoEntry)
+				entry = new(utxo.UtxoEntry)
 				view.entries[*originOut] = entry
 			}
 
@@ -439,18 +325,18 @@ func (view *UtxoViewpoint) disconnectTransactions(db database.DB, block *btcutil
 						*originOut))
 				}
 
-				stxo.Height = utxo.BlockHeight()
+				stxo.Height = utxo.BlockHeight
 				stxo.IsCoinBase = utxo.IsCoinBase()
 			}
 
 			// Restore the utxo using the stxo data from the spend
 			// journal and mark it as modified.
-			entry.amount = stxo.Amount
-			entry.pkScript = stxo.PkScript
-			entry.blockHeight = stxo.Height
-			entry.packedFlags = tfModified
+			entry.Amount = stxo.Amount
+			entry.PkScript = stxo.PkScript
+			entry.BlockHeight = stxo.Height
+			entry.PackedFlags = utxo.TfModified
 			if stxo.IsCoinBase {
-				entry.packedFlags |= tfCoinBase
+				entry.PackedFlags |= utxo.TfCoinBase
 			}
 		}
 	}
@@ -469,7 +355,7 @@ func (view *UtxoViewpoint) RemoveEntry(outpoint wire.OutPoint) {
 }
 
 // Entries returns the underlying map that stores of all the utxo entries.
-func (view *UtxoViewpoint) Entries() map[wire.OutPoint]*UtxoEntry {
+func (view *UtxoViewpoint) Entries() map[wire.OutPoint]*utxo.UtxoEntry {
 	return view.entries
 }
 
@@ -477,12 +363,12 @@ func (view *UtxoViewpoint) Entries() map[wire.OutPoint]*UtxoEntry {
 // all entries as unmodified.
 func (view *UtxoViewpoint) commit() {
 	for outpoint, entry := range view.entries {
-		if entry == nil || (entry.isModified() && entry.IsSpent()) {
+		if entry == nil || (entry.IsModified() && entry.IsSpent()) {
 			delete(view.entries, outpoint)
 			continue
 		}
 
-		entry.packedFlags ^= tfModified
+		entry.PackedFlags ^= utxo.TfModified
 	}
 }
 
@@ -602,7 +488,7 @@ func (view *UtxoViewpoint) fetchInputUtxos(db database.DB, block *btcutil.Block)
 // NewUtxoViewpoint returns a new empty unspent transaction output view.
 func NewUtxoViewpoint() *UtxoViewpoint {
 	return &UtxoViewpoint{
-		entries: make(map[wire.OutPoint]*UtxoEntry),
+		entries: make(map[wire.OutPoint]*utxo.UtxoEntry),
 	}
 }
 
@@ -647,11 +533,11 @@ func (b *BlockChain) FetchUtxoView(tx *btcutil.Tx) (*UtxoViewpoint, error) {
 //
 // This function is safe for concurrent access however the returned entry (if
 // any) is NOT.
-func (b *BlockChain) FetchUtxoEntry(outpoint wire.OutPoint) (*UtxoEntry, error) {
+func (b *BlockChain) FetchUtxoEntry(outpoint wire.OutPoint) (*utxo.UtxoEntry, error) {
 	b.chainLock.RLock()
 	defer b.chainLock.RUnlock()
 
-	var entry *UtxoEntry
+	var entry *utxo.UtxoEntry
 	err := b.db.View(func(dbTx database.Tx) error {
 		var err error
 		entry, err = dbFetchUtxoEntry(dbTx, outpoint)

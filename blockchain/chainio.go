@@ -14,6 +14,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
+	"github.com/btcsuite/btcd/utxo"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 )
@@ -611,7 +612,7 @@ func recycleOutpointKey(key *[]byte) {
 
 // utxoEntryHeaderCode returns the calculated header code to be used when
 // serializing the provided utxo entry.
-func utxoEntryHeaderCode(entry *UtxoEntry) (uint64, error) {
+func utxoEntryHeaderCode(entry *utxo.UtxoEntry) (uint64, error) {
 	if entry.IsSpent() {
 		return 0, AssertError("attempt to serialize spent utxo header")
 	}
@@ -619,7 +620,7 @@ func utxoEntryHeaderCode(entry *UtxoEntry) (uint64, error) {
 	// As described in the serialization format comments, the header code
 	// encodes the height shifted over one bit and the coinbase flag in the
 	// lowest bit.
-	headerCode := uint64(entry.BlockHeight()) << 1
+	headerCode := uint64(entry.BlockHeight) << 1
 	if entry.IsCoinBase() {
 		headerCode |= 0x01
 	}
@@ -629,7 +630,7 @@ func utxoEntryHeaderCode(entry *UtxoEntry) (uint64, error) {
 
 // serializeUtxoEntry returns the entry serialized to a format that is suitable
 // for long-term storage.  The format is described in detail above.
-func serializeUtxoEntry(entry *UtxoEntry) ([]byte, error) {
+func serializeUtxoEntry(entry *utxo.UtxoEntry) ([]byte, error) {
 	// Spent outputs have no serialization.
 	if entry.IsSpent() {
 		return nil, nil
@@ -643,14 +644,14 @@ func serializeUtxoEntry(entry *UtxoEntry) ([]byte, error) {
 
 	// Calculate the size needed to serialize the entry.
 	size := serializeSizeVLQ(headerCode) +
-		compressedTxOutSize(uint64(entry.Amount()), entry.PkScript())
+		compressedTxOutSize(uint64(entry.Amount), entry.PkScript)
 
 	// Serialize the header code followed by the compressed unspent
 	// transaction output.
 	serialized := make([]byte, size)
 	offset := putVLQ(serialized, headerCode)
-	offset += putCompressedTxOut(serialized[offset:], uint64(entry.Amount()),
-		entry.PkScript())
+	offset += putCompressedTxOut(serialized[offset:], uint64(entry.Amount),
+		entry.PkScript)
 
 	return serialized, nil
 }
@@ -658,7 +659,7 @@ func serializeUtxoEntry(entry *UtxoEntry) ([]byte, error) {
 // deserializeUtxoEntry decodes a utxo entry from the passed serialized byte
 // slice into a new UtxoEntry using a format that is suitable for long-term
 // storage.  The format is described in detail above.
-func deserializeUtxoEntry(serialized []byte) (*UtxoEntry, error) {
+func deserializeUtxoEntry(serialized []byte) (*utxo.UtxoEntry, error) {
 	// Deserialize the header code.
 	code, offset := deserializeVLQ(serialized)
 	if offset >= len(serialized) {
@@ -679,14 +680,14 @@ func deserializeUtxoEntry(serialized []byte) (*UtxoEntry, error) {
 			"utxo: %v", err))
 	}
 
-	entry := &UtxoEntry{
-		amount:      int64(amount),
-		pkScript:    pkScript,
-		blockHeight: blockHeight,
-		packedFlags: 0,
+	entry := &utxo.UtxoEntry{
+		Amount:      int64(amount),
+		PkScript:    pkScript,
+		BlockHeight: blockHeight,
+		PackedFlags: 0,
 	}
 	if isCoinBase {
-		entry.packedFlags |= tfCoinBase
+		entry.PackedFlags |= utxo.TfCoinBase
 	}
 
 	return entry, nil
@@ -697,7 +698,7 @@ func deserializeUtxoEntry(serialized []byte) (*UtxoEntry, error) {
 //
 // When there are no entries for the provided hash, nil will be returned for the
 // both the entry and the error.
-func dbFetchUtxoEntryByHash(dbTx database.Tx, hash *chainhash.Hash) (*UtxoEntry, error) {
+func dbFetchUtxoEntryByHash(dbTx database.Tx, hash *chainhash.Hash) (*utxo.UtxoEntry, error) {
 	// Attempt to find an entry by seeking for the hash along with a zero
 	// index.  Due to the fact the keys are serialized as <hash><index>,
 	// where the index uses an MSB encoding, if there are any entries for
@@ -729,7 +730,7 @@ func dbFetchUtxoEntryByHash(dbTx database.Tx, hash *chainhash.Hash) (*UtxoEntry,
 //
 // When there is no entry for the provided output, nil will be returned for both
 // the entry and the error.
-func dbFetchUtxoEntry(dbTx database.Tx, outpoint wire.OutPoint) (*UtxoEntry, error) {
+func dbFetchUtxoEntry(dbTx database.Tx, outpoint wire.OutPoint) (*utxo.UtxoEntry, error) {
 	// Fetch the unspent transaction output information for the passed
 	// transaction output.  Return now when there is no entry.
 	key := outpointKey(outpoint)
@@ -774,7 +775,7 @@ func dbPutUtxoView(dbTx database.Tx, view *UtxoViewpoint) error {
 	utxoBucket := dbTx.Metadata().Bucket(utxoSetBucketName)
 	for outpoint, entry := range view.entries {
 		// No need to update the database if the entry was not modified.
-		if entry == nil || !entry.isModified() {
+		if entry == nil || !entry.IsModified() {
 			continue
 		}
 

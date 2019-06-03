@@ -884,7 +884,7 @@ func (idx *AddrIndex) AddUnconfirmedTx(tx *btcutil.Tx, utxoView *blockchain.Utxo
 			// call out all inputs must be available.
 			continue
 		}
-		idx.indexUnconfirmedAddresses(entry.PkScript(), tx)
+		idx.indexUnconfirmedAddresses(entry.PkScript, tx)
 	}
 
 	// Index addresses of all created outputs.

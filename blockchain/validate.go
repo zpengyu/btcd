@@ -5,6 +5,7 @@
 package blockchain
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -14,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/utxo"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 )
@@ -411,7 +413,7 @@ func CountP2SHSigOps(tx *btcutil.Tx, isCoinBaseTx bool, utxoView *UtxoViewpoint)
 
 		// We're only interested in pay-to-script-hash types, so skip
 		// this input if it's not one.
-		pkScript := utxo.PkScript()
+		pkScript := utxo.PkScript
 		if !txscript.IsPayToScriptHash(pkScript) {
 			continue
 		}
@@ -868,7 +870,7 @@ func (b *BlockChain) checkBIP0030(node *blockNode, block *btcutil.Block, view *U
 		if utxo != nil && !utxo.IsSpent() {
 			str := fmt.Sprintf("tried to overwrite transaction %v "+
 				"at block height %d that is not fully spent",
-				outpoint.Hash, utxo.BlockHeight())
+				outpoint.Hash, utxo.BlockHeight)
 			return ruleError(ErrOverwriteTx, str)
 		}
 	}
@@ -909,7 +911,7 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView *UtxoViewpo
 		// Ensure the transaction is not spending coins which have not
 		// yet reached the required coinbase maturity.
 		if utxo.IsCoinBase() {
-			originHeight := utxo.BlockHeight()
+			originHeight := utxo.BlockHeight
 			blocksSincePrev := txHeight - originHeight
 			coinbaseMaturity := int32(chainParams.CoinbaseMaturity)
 			if blocksSincePrev < coinbaseMaturity {
@@ -923,13 +925,24 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView *UtxoViewpo
 			}
 		}
 
+		// After eko activated, tax tx must use expired utxo, reguar tx must not
+		if txHeight > chainParams.TaxationBeginHeight {
+			if tx.IsTaxTx() && !utxo.IsExpired() {
+				// unexpired tax utxo
+				return 0, ruleError(ErrUnexpiredTaxUTXO, "tax utxo must be expired")
+			}
+			if !tx.IsTaxTx() && utxo.IsExpired() {
+				return 0, ruleError(ErrExpiredRegularUTXO, "regular input utxo has expired")
+			}
+		}
+
 		// Ensure the transaction amounts are in range.  Each of the
 		// output values of the input transactions must not be negative
 		// or more than the max allowed per transaction.  All amounts in
 		// a transaction are in a unit value known as a satoshi.  One
 		// bitcoin is a quantity of satoshi as defined by the
 		// SatoshiPerBitcoin constant.
-		originTxSatoshi := utxo.Amount()
+		originTxSatoshi := utxo.Amount
 		if originTxSatoshi < 0 {
 			str := fmt.Sprintf("transaction output has negative "+
 				"value of %v", btcutil.Amount(originTxSatoshi))
@@ -955,6 +968,14 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView *UtxoViewpo
 				"allowed value of %v", totalSatoshiIn,
 				btcutil.MaxSatoshi)
 			return 0, ruleError(ErrBadTxOutValue, str)
+		}
+	}
+
+	// Check tax amount
+	if txHeight > chainParams.TaxationBeginHeight && tx.IsTaxTx() {
+		_, err := checkTxTaxAmount(tx, utxoView, chainParams)
+		if err != nil {
+			return 0, err
 		}
 	}
 
@@ -1157,6 +1178,14 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block, vi
 		return ruleError(ErrBadCoinbaseValue, str)
 	}
 
+	// Validate tax transactions if the block contain any tax transactions
+	if block.HasTaxTransactions() {
+		taxTxErr := b.validateTaxTransactions(block, view)
+		if taxTxErr != nil {
+			return taxTxErr
+		}
+	}
+
 	// Don't run scripts if this node is before the latest known good
 	// checkpoint since the validity is verified via the checkpoints (all
 	// transactions are included in the merkle root hash and any changes
@@ -1292,4 +1321,294 @@ func (b *BlockChain) CheckConnectBlockTemplate(block *btcutil.Block) error {
 	view.SetBestHash(&tip.hash)
 	newNode := newBlockNode(&header, tip)
 	return b.checkConnectBlock(newNode, block, view, nil)
+
+}
+
+// checkTaxTransactionInputsAmount verifies:
+// 1. all input transfer certain amount to coinbase address if the input utxo is larger than dust satoshi amount.
+// 2. all input transfer all amount to coinbase address if the input utxo is lower or equal than dust satoshi amount.
+func checkTxTaxAmount(tx *btcutil.Tx, utxoView *UtxoViewpoint, chainParams *chaincfg.Params) (int64, error) {
+	// Build input hash and output hash
+	// [key, value] -> [addressArray, amount]
+	// tax = inputAmount-outputAmount
+	inputMap := make(map[string]int64)
+	outputMap := make(map[string]int64)
+	totalTaxAmount := int64(0)
+	errAmount := int64(0)
+
+	// Put input address and amount to the inputHash
+	for _, txIn := range tx.MsgTx().TxIn {
+		utxo := utxoView.LookupEntry(txIn.PreviousOutPoint)
+		if utxo == nil {
+			return errAmount, ruleError(ErrMissingTxOut, "tax input is not an utxo")
+		}
+		addresses, err := concatAddressesFromPkScript(utxo.PkScript, chainParams)
+		if err != nil {
+			return errAmount, ruleError(ErrBadAddress, "Invalid output address")
+		}
+		inputMap[addresses] = utxo.Amount
+		totalTaxAmount += utxo.Amount
+	}
+
+	// Put output address and amount to the outputHash
+	for _, txOut := range tx.MsgTx().TxOut {
+		addresses, err := concatAddressesFromPkScript(txOut.PkScript, chainParams)
+		if err != nil {
+			return errAmount, ruleError(ErrBadAddress, "Invalid output address")
+		}
+		outputMap[addresses] = txOut.Value
+		totalTaxAmount -= txOut.Value
+	}
+
+	// Exam input value equals the rest amount after tax deduction
+	// Delete the key from input when matched
+	for outKey, outValue := range outputMap {
+		inValue := inputMap[outKey]
+		if inValue == 0 {
+			// can not find input by the output
+			return errAmount, ruleError(ErrBadTxInput, "Miss matched input and output")
+		}
+		if math.Ceil(float64(inValue*int64(chainParams.TaxRate)/100)) >= float64(inValue-outValue) {
+			// the tax amount is correct
+			delete(inputMap, outKey)
+		} else {
+			// Too much tax
+			return errAmount, ruleError(ErrWrongTaxAmount, "Incorrect tax amount")
+		}
+	}
+
+	// The rest in the input map should all be dust
+	for _, inValue := range outputMap {
+		if inValue > int64(chainParams.DustSatoshiAmount) {
+			return errAmount, ruleError(ErrWrongTaxAmount, "Incorrect tax amount")
+		}
+	}
+
+	return totalTaxAmount, nil
+}
+
+func concatAddressesFromPkScript(pkScript []byte, chainParams *chaincfg.Params) (string, error) {
+	_, addrs, _, err := txscript.ExtractPkScriptAddrs(pkScript, chainParams)
+	if err != nil {
+		return "", err
+	}
+
+	var buffer bytes.Buffer
+	for _, addr := range addrs {
+		buffer.WriteString(addr.String())
+	}
+	return buffer.String(), nil
+}
+
+// FetchTaxTransactions returns all tax txs from a given block
+func FetchTaxTransactions(block *btcutil.Block) []*btcutil.Tx {
+	// fetch all tax transactions from block
+	var taxTxs []*btcutil.Tx
+	for _, tx := range block.Transactions() {
+		if tx.IsTaxTx() {
+			taxTxs = append(taxTxs, tx)
+		}
+	}
+	return taxTxs
+}
+
+// fetchLargestExpiredHeight returns the highest block height from a given block
+func fetchAndValidateExpiredUtxosAndLargestHeight(taxTxs []*btcutil.Tx, utxoView *UtxoViewpoint) (map[wire.OutPoint]*utxo.UtxoEntry, int32, error) {
+	expiredUtxos := make(map[wire.OutPoint]*utxo.UtxoEntry)
+	height := int32(0)
+
+	for _, tx := range taxTxs {
+		for _, txInput := range tx.MsgTx().TxIn {
+			utxo := utxoView.LookupEntry(txInput.PreviousOutPoint)
+			// all utxos must be expired
+			if utxo == nil || utxo.IsSpent() || utxo.IsCoinBase() || !utxo.IsExpired() {
+				return nil, int32(0), ruleError(ErrUnexpiredTaxUTXO, "utxos in tax transactions must be expired")
+			}
+			if expiredUtxos[txInput.PreviousOutPoint] == nil {
+				expiredUtxos[txInput.PreviousOutPoint] = utxo
+				if height < utxo.BlockHeight {
+					height = utxo.BlockHeight
+				}
+			} else {
+				// double spend
+				return nil, int32(0), ruleError(ErrDoubleSpendTaxUTXO, "Expired utxo double spend in the tax transaction")
+			}
+		}
+	}
+
+	return expiredUtxos, height, nil
+}
+
+// FetchPrevBlockHasTaxTxs returns the latest previous block that contain tax transactions.
+// If prev block doesn't contain any expired utxos, recursively retrieve further blocks
+// This function serves a block for the function "fetchHighestTaxTxInputHeight"
+// Warning: if there's no tax transactions on the chain, it will recusively reach to the genesis
+func FetchPrevBlockHasTaxTxs(b Interface, block *btcutil.Block) (*btcutil.Block, error) {
+	var prevBlock *btcutil.Block
+	var err error
+
+	for h := block.Height() - 1; h > 0; h-- {
+		prevBlock, err = b.BlockByHeight(h)
+		if err != nil {
+			return nil, err
+		}
+		if prevBlock.HasTaxTransactions() {
+			return prevBlock, nil
+		}
+	}
+	return nil, nil
+}
+
+// fetchHighestTaxTxInputHeight returns the highest height of tax transaction input block.
+// The block given in the parameter must contain tax transactions
+func (b *BlockChain) fetchHighestTaxTxInputHeight(block *btcutil.Block, utxoView UtxoViewpointInterface) int32 {
+	// fetch all tax txs from the prevBlock
+	taxTxs := FetchTaxTransactions(block)
+	// Loop all transactions, save the max height from expired utxos
+	maxHeight := int32(-1)
+	for _, tx := range taxTxs {
+		for _, txInput := range tx.MsgTx().TxIn {
+			utxo := utxoView.LookupEntry(txInput.PreviousOutPoint)
+			if maxHeight < utxo.BlockHeight {
+				maxHeight = utxo.BlockHeight
+			}
+		}
+	}
+	return maxHeight
+}
+
+// FetchUtxosInRange returns an array that contains utxos from a given range of blocks
+// It does not guarantee to return expired utxos
+// The expiration should be controlled by fromHeight and toHeight
+func (b *BlockChain) FetchUtxosInRange(fromHeight int32, toHeight int32) (map[wire.OutPoint]*utxo.UtxoEntry, error) {
+	// Hash map to keep utoxs
+	allUtxos := make(map[wire.OutPoint]*utxo.UtxoEntry)
+
+	// Validate heights
+	if toHeight > fromHeight {
+		return allUtxos, nil
+	}
+
+	for i := fromHeight; i <= toHeight; i++ {
+		utxos, err := b.fetchUtxosByHeight(i)
+		if err != nil {
+			return allUtxos, err
+		}
+
+		if utxos != nil {
+			for k, v := range utxos {
+				allUtxos[k] = v
+			}
+		}
+	}
+
+	return allUtxos, nil
+}
+
+// fetchExpiredUtxosByHeight returns an hash map that contains utxos from a given block height
+// It does not guarantee to return expired utxos
+// The expiration should be controlled by the height
+func (b *BlockChain) fetchUtxosByHeight(height int32) (map[wire.OutPoint]*utxo.UtxoEntry, error) {
+	block, err := b.BlockByHeight(height)
+	if err != nil {
+		return nil, err
+	}
+
+	// Retrieve all txOut from utxoBucket (single dn bucket) via FetchUtxoEntry
+	utxos := make(map[wire.OutPoint]*utxo.UtxoEntry)
+	for _, tx := range block.Transactions() {
+		for i := range tx.MsgTx().TxOut {
+			// Fetch utxo from utxoBucket, it won't return error if it cannot find entry
+			outPoint := *wire.NewOutPoint(tx.Hash(), uint32(i))
+			entry, err := b.FetchUtxoEntry(outPoint)
+			if err != nil {
+				return nil, err
+			}
+			if entry != nil {
+				utxos[outPoint] = entry
+			}
+		}
+	}
+
+	return utxos, nil
+}
+
+// validateTaxTransactions check all tax transactions in a given block.
+// Assume that block contains tax transactions
+// They should satisfy:
+// 1. Tax transactions weigh no more than 25% of the block size.
+// 2. Expired utxos should not double spent
+// 3. All utxos must be expired
+// 4. Tax transactions refers to expired utxos in sequence
+//
+// Please note this function is used in these scenarios:
+// 1. add a new block to the blockchain, triggered by checkConnectBlock
+// 2. mining
+func (b *BlockChain) validateTaxTransactions(block *btcutil.Block, utxoView *UtxoViewpoint) error {
+	// block height must larger than hark forked height, otherwise skip (check this outside this function)
+	if block.Height() <= b.chainParams.TaxationBeginHeight {
+		return ruleError(ErrImmatureHeightForTaxTx, "Too early to have tax transactions in this block height")
+	}
+
+	// Get all tax transactions
+	taxTxs := FetchTaxTransactions(block)
+
+	if taxTxs != nil && len(taxTxs) > 0 {
+		// 1. Weigh no more than 25% of the block size
+		taxTxsWeight := int64(0)
+		for _, tx := range taxTxs {
+			taxTxsWeight += GetTransactionWeight(tx)
+		}
+		if taxTxsWeight > 1000000 {
+			// approx 25% of the maximum weight of a block
+			return ruleError(ErrExceedTaxWeight, "The total weight of tax transactions exceed 1000000")
+		}
+
+		// Validate all tax transaction inputs covering from the oldest expired utxos in sequence.
+		// This prevents prioritized mining large amout expired utxos.
+		// 2. Check double spend
+		// 3. All utxos must be expired
+		expiredUtxos, toExpiredUtxoHeight, err := fetchAndValidateExpiredUtxosAndLargestHeight(taxTxs, utxoView)
+		if err != nil {
+			return err
+		}
+		// Fetch the lastest previous block that contain tax transactions
+		prev, err := FetchPrevBlockHasTaxTxs(b, block)
+		if err != nil {
+			return err
+		}
+		if prev == nil {
+			// Can not find tax transactions, skip this validation
+			return nil
+		}
+		// Fetch the largest height of expired utxos from previous block
+		fromExpiredUtxoHeight := b.fetchHighestTaxTxInputHeight(block, utxoView)
+		if fromExpiredUtxoHeight == -1 {
+			return nil
+		}
+		// Fetch expired utxos that should be included in this block
+		expectedExpiredUtxos, err := b.FetchUtxosInRange(fromExpiredUtxoHeight, toExpiredUtxoHeight)
+		if err != nil {
+			return err
+		}
+		// All these utxos must be expired
+		for _, utxo := range expectedExpiredUtxos {
+			if utxo == nil || utxo.IsSpent() || utxo.IsCoinBase() || !utxo.IsExpired() {
+				return ruleError(ErrUnexpiredTaxUTXO, "utxos in tax transactions must be expired")
+			}
+		}
+		// Tax transactions refers to expired utxos in sequence
+		for k := range expiredUtxos {
+			if expectedExpiredUtxos[k] != nil {
+				delete(expectedExpiredUtxos, k)
+			} else {
+				return ruleError(ErrUnmatchedTaxTxSequence, "Unmatched tax transactions in given blocks")
+			}
+		}
+		if len(expectedExpiredUtxos) > 0 {
+			return ruleError(ErrUnmatchedTaxTxSequence, "Unmatched tax transactions in given blocks")
+		}
+	}
+
+	return nil
 }

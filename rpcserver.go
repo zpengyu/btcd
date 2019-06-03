@@ -2722,9 +2722,9 @@ func handleGetTxOut(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (i
 
 		best := s.cfg.Chain.BestSnapshot()
 		bestBlockHash = best.Hash.String()
-		confirmations = 1 + best.Height - entry.BlockHeight()
-		value = entry.Amount()
-		pkScript = entry.PkScript()
+		confirmations = 1 + best.Height - entry.BlockHeight
+		value = entry.Amount
+		pkScript = entry.PkScript
 		isCoinbase = entry.IsCoinBase()
 	}
 
@@ -4281,7 +4281,7 @@ func newRPCServer(config *rpcserverConfig) (*rpcServer, error) {
 		gbtWorkState:           newGbtWorkState(config.TimeSource),
 		helpCacher:             newHelpCacher(),
 		requestProcessShutdown: make(chan struct{}),
-		quit: make(chan int),
+		quit:                   make(chan int),
 	}
 	if cfg.RPCUser != "" && cfg.RPCPass != "" {
 		login := cfg.RPCUser + ":" + cfg.RPCPass

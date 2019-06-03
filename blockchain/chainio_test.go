@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/database"
+	"github.com/btcsuite/btcd/utxo"
 	"github.com/btcsuite/btcd/wire"
 )
 
@@ -409,18 +410,18 @@ func TestUtxoSerialization(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		entry      *UtxoEntry
+		entry      *utxo.UtxoEntry
 		serialized []byte
 	}{
 		// From tx in main blockchain:
 		// 0e3e2357e806b6cdb1f70b54c3a3a17b6714ee1f0e68bebb44a74b1efd512098:0
 		{
 			name: "height 1, coinbase",
-			entry: &UtxoEntry{
-				amount:      5000000000,
-				pkScript:    hexToBytes("410496b538e853519c726a2c91e61ec11600ae1390813a627c66fb8be7947be63c52da7589379515d4e0a604f8141781e62294721166bf621e73a82cbf2342c858eeac"),
-				blockHeight: 1,
-				packedFlags: tfCoinBase,
+			entry: &utxo.UtxoEntry{
+				Amount:      5000000000,
+				PkScript:    hexToBytes("410496b538e853519c726a2c91e61ec11600ae1390813a627c66fb8be7947be63c52da7589379515d4e0a604f8141781e62294721166bf621e73a82cbf2342c858eeac"),
+				BlockHeight: 1,
+				PackedFlags: utxo.TfCoinBase,
 			},
 			serialized: hexToBytes("03320496b538e853519c726a2c91e61ec11600ae1390813a627c66fb8be7947be63c52"),
 		},
@@ -428,11 +429,11 @@ func TestUtxoSerialization(t *testing.T) {
 		// 0e3e2357e806b6cdb1f70b54c3a3a17b6714ee1f0e68bebb44a74b1efd512098:0
 		{
 			name: "height 1, coinbase, spent",
-			entry: &UtxoEntry{
-				amount:      5000000000,
-				pkScript:    hexToBytes("410496b538e853519c726a2c91e61ec11600ae1390813a627c66fb8be7947be63c52da7589379515d4e0a604f8141781e62294721166bf621e73a82cbf2342c858eeac"),
-				blockHeight: 1,
-				packedFlags: tfCoinBase | tfSpent,
+			entry: &utxo.UtxoEntry{
+				Amount:      5000000000,
+				PkScript:    hexToBytes("410496b538e853519c726a2c91e61ec11600ae1390813a627c66fb8be7947be63c52da7589379515d4e0a604f8141781e62294721166bf621e73a82cbf2342c858eeac"),
+				BlockHeight: 1,
+				PackedFlags: utxo.TfCoinBase | utxo.TfSpent,
 			},
 			serialized: nil,
 		},
@@ -440,11 +441,11 @@ func TestUtxoSerialization(t *testing.T) {
 		// 8131ffb0a2c945ecaf9b9063e59558784f9c3a74741ce6ae2a18d0571dac15bb:1
 		{
 			name: "height 100001, not coinbase",
-			entry: &UtxoEntry{
-				amount:      1000000,
-				pkScript:    hexToBytes("76a914ee8bd501094a7d5ca318da2506de35e1cb025ddc88ac"),
-				blockHeight: 100001,
-				packedFlags: 0,
+			entry: &utxo.UtxoEntry{
+				Amount:      1000000,
+				PkScript:    hexToBytes("76a914ee8bd501094a7d5ca318da2506de35e1cb025ddc88ac"),
+				BlockHeight: 100001,
+				PackedFlags: 0,
 			},
 			serialized: hexToBytes("8b99420700ee8bd501094a7d5ca318da2506de35e1cb025ddc"),
 		},
@@ -452,11 +453,11 @@ func TestUtxoSerialization(t *testing.T) {
 		// 8131ffb0a2c945ecaf9b9063e59558784f9c3a74741ce6ae2a18d0571dac15bb:1
 		{
 			name: "height 100001, not coinbase, spent",
-			entry: &UtxoEntry{
-				amount:      1000000,
-				pkScript:    hexToBytes("76a914ee8bd501094a7d5ca318da2506de35e1cb025ddc88ac"),
-				blockHeight: 100001,
-				packedFlags: tfSpent,
+			entry: &utxo.UtxoEntry{
+				Amount:      1000000,
+				PkScript:    hexToBytes("76a914ee8bd501094a7d5ca318da2506de35e1cb025ddc88ac"),
+				BlockHeight: 100001,
+				PackedFlags: utxo.TfSpent,
 			},
 			serialized: nil,
 		},
@@ -501,23 +502,23 @@ func TestUtxoSerialization(t *testing.T) {
 
 		// Ensure the deserialized entry has the same properties as the
 		// ones in the test entry.
-		if utxoEntry.Amount() != test.entry.Amount() {
+		if utxoEntry.Amount != test.entry.Amount {
 			t.Errorf("deserializeUtxoEntry #%d (%s) mismatched "+
 				"amounts: got %d, want %d", i, test.name,
-				utxoEntry.Amount(), test.entry.Amount())
+				utxoEntry.Amount, test.entry.Amount)
 			continue
 		}
 
-		if !bytes.Equal(utxoEntry.PkScript(), test.entry.PkScript()) {
+		if !bytes.Equal(utxoEntry.PkScript, test.entry.PkScript) {
 			t.Errorf("deserializeUtxoEntry #%d (%s) mismatched "+
 				"scripts: got %x, want %x", i, test.name,
-				utxoEntry.PkScript(), test.entry.PkScript())
+				utxoEntry.PkScript, test.entry.PkScript)
 			continue
 		}
-		if utxoEntry.BlockHeight() != test.entry.BlockHeight() {
+		if utxoEntry.BlockHeight != test.entry.BlockHeight {
 			t.Errorf("deserializeUtxoEntry #%d (%s) mismatched "+
 				"block height: got %d, want %d", i, test.name,
-				utxoEntry.BlockHeight(), test.entry.BlockHeight())
+				utxoEntry.BlockHeight, test.entry.BlockHeight)
 			continue
 		}
 		if utxoEntry.IsCoinBase() != test.entry.IsCoinBase() {
@@ -536,13 +537,13 @@ func TestUtxoEntryHeaderCodeErrors(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		entry   *UtxoEntry
+		entry   *utxo.UtxoEntry
 		code    uint64
 		errType error
 	}{
 		{
 			name:    "Force assertion due to spent output",
-			entry:   &UtxoEntry{packedFlags: tfSpent},
+			entry:   &utxo.UtxoEntry{PackedFlags: utxo.TfSpent},
 			errType: AssertError(""),
 		},
 	}

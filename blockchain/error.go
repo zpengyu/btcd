@@ -220,6 +220,30 @@ const (
 	// current chain tip. This is not a block validation rule, but is required
 	// for block proposals submitted via getblocktemplate RPC.
 	ErrPrevBlockNotBest
+
+	// UTXO expired in reguar tx
+	ErrExpiredRegularUTXO
+
+	// Immature block height for adding tax transaction
+	ErrImmatureHeightForTaxTx
+
+	// Unexpired Tax UTXO
+	ErrUnexpiredTaxUTXO
+
+	// Expired UTXO double spend in the tax transaction
+	ErrDoubleSpendTaxUTXO
+
+	// Total tax txs weight exceedd 25% of a maximum block weight
+	ErrExceedTaxWeight
+
+	// Can not parse the address
+	ErrBadAddress
+
+	// Wrong tax amount
+	ErrWrongTaxAmount
+
+	// Unmatched Tax transaction sequence
+	ErrUnmatchedTaxTxSequence
 )
 
 // Map of ErrorCode values back to their constant names for pretty printing.
@@ -267,6 +291,14 @@ var errorCodeStrings = map[ErrorCode]string{
 	ErrPreviousBlockUnknown:      "ErrPreviousBlockUnknown",
 	ErrInvalidAncestorBlock:      "ErrInvalidAncestorBlock",
 	ErrPrevBlockNotBest:          "ErrPrevBlockNotBest",
+	ErrExpiredRegularUTXO:        "ErrExpiredRegularUTXO",
+	ErrImmatureHeightForTaxTx:    "ErrImmatureHeightForTaxTx",
+	ErrUnexpiredTaxUTXO:          "ErrUnexpiredTaxUTXO",
+	ErrDoubleSpendTaxUTXO:        "ErrDoubleSpendTaxUTXO",
+	ErrExceedTaxWeight:           "ErrExceedTaxWeight",
+	ErrBadAddress:                "ErrBadAddress",
+	ErrWrongTaxAmount:            "ErrWrongTaxAmount",
+	ErrUnmatchedTaxTxSequence:    "ErrUnmatchedTaxTxSequence",
 }
 
 // String returns the ErrorCode as a human-readable name.
